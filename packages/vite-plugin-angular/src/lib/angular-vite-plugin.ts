@@ -1,22 +1,26 @@
+import { ModuleNode, Plugin, PluginContainer, ViteDevServer } from 'vite';
 import { CompilerHost, NgtscProgram } from '@angular/compiler-cli';
 import { transformAsync } from '@babel/core';
-import angularApplicationPreset from '@angular-devkit/build-angular/src/babel/presets/application';
+
 import * as ts from 'typescript';
-import { ModuleNode, Plugin, PluginContainer, ViteDevServer } from 'vite';
-import { loadEsmModule } from '@angular-devkit/build-angular/src/utils/load-esm';
-import { createJitResourceTransformer } from '@angular-devkit/build-angular/src/builders/browser-esbuild/angular/jit-resource-transformer';
 import * as path from 'path';
 
 import { createCompilerPlugin } from './compiler-plugin';
 import {
   hasStyleUrls,
   hasTemplateUrl,
-  resolveStyleUrls,
-  resolveTemplateUrls,
+  StyleUrlsResolver,
+  TemplateUrlsResolver,
 } from './component-resolvers';
 import { augmentHostWithResources } from './host';
 import { jitPlugin } from './angular-jit-plugin';
 import { buildOptimizerPlugin } from './angular-build-optimizer-plugin';
+import {
+  loadEsmModule,
+  angularApplicationPreset,
+  createJitResourceTransformer,
+  SourceFileCache,
+} from './utils/devkit';
 
 export interface PluginOptions {
   tsconfig?: string;
@@ -30,6 +34,7 @@ export interface PluginOptions {
     tsTransformers?: ts.CustomTransformers;
   };
   supportedBrowsers?: string[];
+  transformFilter?: (code: string, id: string) => boolean;
 }
 
 interface EmitFileResult {
@@ -84,7 +89,7 @@ export function angular(options?: PluginOptions): Plugin[] {
     augmentProgramWithVersioning,
     augmentHostWithCaching,
   } = require('@ngtools/webpack/src/ivy/host');
-  const { SourceFileCache } = require('@ngtools/webpack/src/ivy/cache');
+
   let compilerCli: typeof import('@angular/compiler-cli');
   let rootNames: string[];
   let host: ts.CompilerHost;
@@ -100,6 +105,9 @@ export function angular(options?: PluginOptions): Plugin[] {
   let cssPlugin: Plugin | undefined;
   let styleTransform: PluginContainer['transform'] | undefined;
 
+  const styleUrlsResolver = new StyleUrlsResolver();
+  const templateUrlsResolver = new TemplateUrlsResolver();
+
   function angularPlugin(): Plugin {
     return {
       name: '@analogjs/vite-plugin-angular',
@@ -109,7 +117,7 @@ export function angular(options?: PluginOptions): Plugin[] {
         pluginOptions.tsconfig =
           options?.tsconfig ??
           path.resolve(
-            config.root!,
+            config.root || '.',
             process.env['NODE_ENV'] === 'test'
               ? './tsconfig.spec.json'
               : './tsconfig.app.json'
@@ -164,8 +172,16 @@ export function angular(options?: PluginOptions): Plugin[] {
         await buildAndAnalyze();
       },
       async handleHotUpdate(ctx) {
+        // The `handleHotUpdate` hook may be called before the `buildStart`,
+        // which sets the compilation. As a result, the `host` may not be available
+        // yet for use, leading to build errors such as "cannot read properties of undefined"
+        // (because `host` is undefined).
+        if (!host) {
+          return;
+        }
+
         if (TS_EXT_REGEX.test(ctx.file)) {
-          sourceFileCache.invalidate(ctx.file.replace(/\?(.*)/, ''));
+          sourceFileCache.invalidate([ctx.file.replace(/\?(.*)/, '')]);
           await buildAndAnalyze();
         }
 
@@ -185,7 +201,7 @@ export function angular(options?: PluginOptions): Plugin[] {
           const mods: ModuleNode[] = [];
           ctx.modules.forEach((mod) => {
             mod.importers.forEach((imp) => {
-              sourceFileCache.invalidate(imp.id);
+              sourceFileCache.invalidate([imp.id as string]);
               ctx.server.moduleGraph.invalidateModule(imp);
               mods.push(imp);
             });
@@ -201,6 +217,15 @@ export function angular(options?: PluginOptions): Plugin[] {
         // Skip transforming node_modules
         if (id.includes('node_modules')) {
           return;
+        }
+
+        /**
+         * Check for options.transformFilter
+         */
+        if (options?.transformFilter) {
+          if (!(options?.transformFilter(code, id) ?? true)) {
+            return;
+          }
         }
 
         /**
@@ -229,7 +254,7 @@ export function angular(options?: PluginOptions): Plugin[] {
           if (isTest) {
             const tsMod = viteServer?.moduleGraph.getModuleById(id);
             if (tsMod) {
-              sourceFileCache.invalidate(id);
+              sourceFileCache.invalidate([id]);
               await buildAndAnalyze();
             }
           }
@@ -238,23 +263,21 @@ export function angular(options?: PluginOptions): Plugin[] {
           let styleUrls: string[] = [];
 
           if (hasTemplateUrl(code)) {
-            templateUrls = resolveTemplateUrls(code, id);
+            templateUrls = templateUrlsResolver.resolve(code, id);
           }
 
           if (hasStyleUrls(code)) {
-            styleUrls = resolveStyleUrls(code, id);
+            styleUrls = styleUrlsResolver.resolve(code, id);
           }
 
           if (watchMode) {
-            templateUrls.forEach((templateUrlSet) => {
-              const [, templateUrl] = templateUrlSet.split('|');
-              this.addWatchFile(templateUrl);
-            });
-
-            styleUrls.forEach((styleUrlSet) => {
-              const [, styleUrl] = styleUrlSet.split('|');
-              this.addWatchFile(styleUrl);
-            });
+            for (const urlSet of [...templateUrls, ...styleUrls]) {
+              // `urlSet` is a string where a relative path is joined with an
+              // absolute path using the `|` symbol.
+              // For example: `./app.component.html|/home/projects/analog/src/app/app.component.html`.
+              const [, absoluteFileUrl] = urlSet.split('|');
+              this.addWatchFile(absoluteFileUrl);
+            }
           }
 
           const typescriptResult = await fileEmitter!(id);
@@ -271,18 +294,10 @@ export function angular(options?: PluginOptions): Plugin[] {
             templateUrls.forEach((templateUrlSet) => {
               const [templateFile, resolvedTemplateUrl] =
                 templateUrlSet.split('|');
-
-              if (watchMode) {
-                data = data.replace(
-                  `angular:jit:template:file;${templateFile}`,
-                  `virtual:angular:jit:template:file;${resolvedTemplateUrl}`
-                );
-              } else {
-                data = data.replace(
-                  `angular:jit:template:file;${templateFile}`,
-                  `${resolvedTemplateUrl}?raw`
-                );
-              }
+              data = data.replace(
+                `angular:jit:template:file;${templateFile}`,
+                `${resolvedTemplateUrl}?raw`
+              );
             });
 
             styleUrls.forEach((styleUrlSet) => {

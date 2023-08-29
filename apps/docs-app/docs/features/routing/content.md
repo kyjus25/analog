@@ -5,38 +5,6 @@ import TabItem from '@theme/TabItem';
 
 Analog also supports using markdown content as routes, and rendering markdown content in components.
 
-## Usage
-
-To use content files in Analog, install the `@analogjs/content` package and its dependencies:
-
-### Installation
-
-<Tabs groupId="package-manager">
-  <TabItem value="npm">
-
-```shell
-npm install @analogjs/content prismjs marked front-matter
-```
-
-  </TabItem>
-
-  <TabItem label="Yarn" value="yarn">
-
-```shell
-yarn install @analogjs/content prismjs marked front-matter
-```
-
-  </TabItem>
-
-  <TabItem value="pnpm">
-
-```shell
-pnpm install @analogjs/content prismjs marked front-matter
-```
-
-  </TabItem>
-</Tabs>
-
 ### Setup
 
 In the `src/app/app.config.ts`, add the `provideContent()` function, along with the `withMarkdownRenderer()` feature to the `providers` array when bootstrapping the application.
@@ -112,19 +80,19 @@ export interface PostAttributes {
   standalone: true,
   imports: [RouterOutlet, RouterLink, NgFor],
   template: `
-    <ul *ngFor="let post of posts">
-      <li>
-        <a [routerLink]="['/blog', 'posts', post.slug]">
-          {{ post.attributes.title }}</a
-        >
+    <ul>
+      <li *ngFor="let post of posts">
+        <a [routerLink]="['/blog', 'posts', post.slug]">{{
+          post.attributes.title
+        }}</a>
       </li>
     </ul>
   `,
 })
 export default class BlogComponent {
-  private readonly contentFilterFn: InjectContentFilesFilterFunction<PostAttributes> =
-    (contentFile) => !!contentFile.filename.includes('/src/content/blog/');
-  readonly posts = injectContentFiles<PostAttributes>(contentFilterFn);
+  readonly posts = injectContentFiles<PostAttributes>((contentFile) =>
+    contentFile.filename.includes('/src/content/blog/')
+  );
 }
 ```
 
@@ -170,7 +138,7 @@ The `injectContent()` function can also be used with an object that contains the
 
 This can be useful if, for instance, you have blog posts, as well as a portfolio of project markdown files to be used on the site.
 
-```ts
+```treeview
 src/
 └── app/
 │   └── pages/
@@ -213,4 +181,16 @@ export default class ProjectComponent {
     subdirectory: 'projects',
   });
 }
+```
+
+## Loading Custom Content
+
+By default, Analog uses the route params to build the filename for retrieving a content file from the `src/content` folder. Analog also supports using a custom filename for retrieving content from the `src/content` folder. This can be useful if, for instance, you have a custom markdown file that you want to load on a page.
+
+The `injectContent()` function can be used by passing an object that contains the `customFilename` property.
+
+```ts
+readonly post$ = injectContent<ProjectAttributes>({
+  customFilename: 'path/to/custom/file',
+});
 ```

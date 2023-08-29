@@ -58,3 +58,8 @@ stats.html
 
 /.env
 .env.local
+
+# E2E test
+tmpanalogapp*
+~/.nvm/nvm-exec
+~/.nvm/nvm.sh

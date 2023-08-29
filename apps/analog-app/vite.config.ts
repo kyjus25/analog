@@ -3,7 +3,7 @@
 import analog from '@analogjs/platform';
 import { visualizer } from 'rollup-plugin-visualizer';
 import { defineConfig, Plugin, splitVendorChunkPlugin } from 'vite';
-import tsConfigPaths from 'vite-tsconfig-paths';
+import { nxViteTsPaths } from '@nx/vite/plugins/nx-tsconfig-paths.plugin';
 
 // Only run in Netlify CI
 if (process.env['NETLIFY'] === 'true') {
@@ -32,14 +32,15 @@ export default defineConfig(({ mode }) => {
         apiPrefix: 'api',
         prerender: {
           routes: ['/', '/cart'],
+          sitemap: {
+            host: process.env['VITE_ANALOG_PUBLIC_BASE_URL'],
+          },
         },
         vite: {
           inlineStylesExtension: 'scss',
         },
       }),
-      tsConfigPaths({
-        root: '../../',
-      }),
+      nxViteTsPaths(),
       visualizer() as Plugin,
       splitVendorChunkPlugin(),
     ],

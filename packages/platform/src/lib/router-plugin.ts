@@ -15,9 +15,26 @@ export function routerPlugin(): Plugin[] {
       config() {
         return {
           ssr: {
-            noExternal: ['@analogjs/**', '@angular/**'],
+            noExternal: [
+              '@analogjs/**',
+              '@analogjs/trpc/**',
+              '@angular/**',
+              '@angular/cdk/**',
+              '@angular/fire/**',
+              '@ngrx/**',
+              '@rx-angular/**',
+              '@ng-bootstrap/**',
+              '@ngneat/**',
+              'apollo-angular/**',
+              'primeng/**',
+            ],
           },
           optimizeDeps: {
+            include: [
+              '@angular/common',
+              '@angular/common/http',
+              '@angular/core/rxjs-interop',
+            ],
             exclude: ['@angular/platform-server', '@analogjs/router'],
           },
         };

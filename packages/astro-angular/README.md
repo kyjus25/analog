@@ -58,7 +58,8 @@ Create a `tsconfig.app.json` in the root of the project.
     "enableI18nLegacyMessageIdFormat": false,
     "strictInjectionParameters": true,
     "strictInputAccessModifiers": true,
-    "strictTemplates": true
+    "strictTemplates": true,
+    "allowJs": false
   },
   "files": [],
   "include": ["src/**/*.ts", "src/**/*.tsx"]
@@ -75,13 +76,13 @@ The integration can also be installed manually
 ### Install the Astro Integration
 
 ```sh
-yarn add @analogjs/astro-angular --dev
+yarn add @analogjs/astro-angular
 ```
 
 ### Install the necessary Angular dependencies
 
 ```sh
-yarn add @angular-devkit/build-angular, @angular/animations, @angular/common, @angular/compiler-cli, @angular/compiler, @angular/core, @angular/language-service, @angular/forms, @angular/platform-browser, @angular/platform-browser-dynamic, @angular/platform-server, rxjs, zone.js, tslib --dev
+yarn add @angular-devkit/build-angular @angular/{animations,common,compiler-cli,compiler,core,language-service,forms,platform-browser,platform-browser-dynamic,platform-server} rxjs zone.js tslib
 ```
 
 ### Adding the integration
@@ -117,6 +118,26 @@ export default defineConfig({
       },
     }),
   ],
+});
+```
+
+### Transforming Packages for SSR Compatibility
+
+To ensure Angular libraries are transformed during Astro's SSR process, add them to the `ssr.noExternal` array in the Vite config.
+
+```js
+import { defineConfig } from 'astro/config';
+
+import angular from '@analogjs/astro-angular';
+
+export default defineConfig({
+  integrations: [angular()],
+  vite: {
+    ssr: {
+      // transform these packages during SSR. Globs supported
+      noExternal: ['@rx-angular/**'],
+    },
+  },
 });
 ```
 
